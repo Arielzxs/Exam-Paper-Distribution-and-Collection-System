@@ -218,7 +218,12 @@ class ServerGUI:
         self.etime_end.insert(0, (datetime.datetime.now() + datetime.timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"))
         self.etime_end.grid(row=6, column=1, columnspan=2, sticky=EW, padx=5, pady=5)
 
-        ttk.Button(group_exam, text='🚀 发布考试 (自动加密打包)', bootstyle=PRIMARY, command=self.set_exam).grid(row=7, column=0, columnspan=3, pady=15, sticky=EW)
+        ttk.Button(
+            group_exam,
+            text='🚀 发布考试 (自动加密打包)',
+            bootstyle=PRIMARY,
+            command=self.start_set_exam
+        ).grid(row=7, column=0, columnspan=3, pady=15, sticky=EW)
 
         right_panel = ttk.Frame(main_frame)
         right_panel.pack(side=LEFT, fill=BOTH, expand=True)
@@ -242,6 +247,15 @@ class ServerGUI:
     def log_print(self, msg):
         self.log.insert(END, f'[{datetime.datetime.now().strftime("%H:%M:%S")}] {msg}\n')
         self.log.see(END)
+
+    def _ui_log(self, msg):
+        self.root.after(0, lambda: self.log_print(msg))
+
+    def _ui_info(self, title, msg):
+        self.root.after(0, lambda: messagebox.showinfo(title, msg))
+
+    def _ui_error(self, title, msg):
+        self.root.after(0, lambda: messagebox.showerror(title, msg))
 
     def select_submit_path(self):
         path = filedialog.askdirectory(title='选择收卷目录')
@@ -280,15 +294,31 @@ class ServerGUI:
         except Exception as e:
             self.log_print(f'❌ 添加考生失败：{e}')
 
-    def set_exam(self):
+    def start_set_exam(self):
+        exam_name = self.ename.get().strip()
+        source_path = self.zip_path_entry.get().strip()
+        submit_path = self.submit_save_path.get().strip()
+        pwd = self.pwd.get().strip()
+        etime_start = self.etime_start.get().strip()
+        etime_end = self.etime_end.get().strip()
+
+        if not source_path or not os.path.isdir(source_path):
+            return messagebox.showerror("错误", "请选择有效的试题文件夹")
+        if not submit_path:
+            return messagebox.showerror("错误", "收卷路径不能为空")
+
         try:
-            source_path = self.zip_path_entry.get().strip()
-            submit_path = self.submit_save_path.get().strip()
-            if not source_path or not os.path.isdir(source_path): return messagebox.showerror("错误", "请选择有效的试题文件夹")
-            if not submit_path: return messagebox.showerror("错误", "收卷路径不能为空")
             n = int(self.question_count.get().strip())
-            
-            dest_filename = f"{self.ename.get()}_{int(datetime.datetime.now().timestamp())}.zip"
+        except ValueError:
+            return messagebox.showerror("错误", "试题数量必须是数字")
+
+        args = (exam_name, source_path, submit_path, pwd, etime_start, etime_end, n)
+        threading.Thread(target=self.set_exam_worker, args=args, daemon=True).start()
+
+    def set_exam_worker(self, exam_name, source_path, submit_path, pwd, etime_start, etime_end, n):
+        temp_dir = None
+        try:
+            dest_filename = f"{exam_name}_{int(datetime.datetime.now().timestamp())}.zip"
             dest_path = os.path.join('exams', dest_filename)
             temp_dir = f"temp_{int(datetime.datetime.now().timestamp())}"
             os.makedirs(temp_dir, exist_ok=True)
@@ -306,24 +336,26 @@ class ServerGUI:
                     fp.write(f"第{i}题答题区，请将代码保存在此目录下。\n")
 
             with pyzipper.AESZipFile(dest_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
-                zf.setpassword(self.pwd.get().encode())
+                zf.setpassword(pwd.encode())
                 for root_, _, files in os.walk(temp_dir):
                     for file in files:
                         fp = os.path.join(root_, file)
                         zf.write(fp, os.path.relpath(fp, temp_dir))
 
-            shutil.rmtree(temp_dir)
-
             conn = get_db()
             c = conn.cursor()
             c.execute('INSERT INTO exams (exam_name, zip_path, password, exam_start_time, exam_end_time, submit_save_path) VALUES (?,?,?,?,?,?)',
-                (self.ename.get(), dest_path, self.pwd.get(), self.etime_start.get(), self.etime_end.get(), submit_path))
+                (exam_name, dest_path, pwd, etime_start, etime_end, submit_path))
             conn.commit()
             conn.close()
-            self.log_print(f'🎉 考试发布成功！已生成加密包。')
-            messagebox.showinfo("成功", "考试发布完成！客户端将自动下载。")
+
+            self._ui_log('🎉 考试发布成功！已生成加密包。')
+            self._ui_info("成功", "考试发布完成！客户端将自动下载。")
         except Exception as e:
-            self.log_print(f'❌ 发布失败：{e}')
+            self._ui_log(f'❌ 发布失败：{e}')
+        finally:
+            if temp_dir and os.path.isdir(temp_dir):
+                shutil.rmtree(temp_dir)
 
     def issue_clean(self):
         if messagebox.askyesno("严重警告", "下发清理指令将清空所有在线考生桌面 NOI_Work 目录下的代码！\n确定要下发吗？"):

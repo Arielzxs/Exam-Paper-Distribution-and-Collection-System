@@ -36,8 +36,30 @@ time_label.pack(side=RIGHT, pady=5)
 main_content = ttk.Frame(root, padding=15)
 main_content.pack(fill=BOTH, expand=True)
 
-left_panel = ttk.Frame(main_content)
-left_panel.pack(side=LEFT, fill=Y, padx=(0, 15))
+# ===== 左侧滚动区域 =====
+left_container = ttk.Frame(main_content)
+left_container.pack(side=LEFT, fill=Y, padx=(0, 15))
+
+canvas = tk.Canvas(left_container, highlightthickness=0)
+scrollbar = tk.Scrollbar(left_container, orient=VERTICAL, command=canvas.yview)
+scrollable_frame = ttk.Frame(canvas)
+
+scrollable_frame.bind(
+    "<Configure>",
+    lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+)
+
+canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+canvas.configure(yscrollcommand=scrollbar.set)
+
+canvas.pack(side=LEFT, fill=Y, expand=True)
+scrollbar.pack(side=RIGHT, fill=Y)
+
+def _on_mousewheel(event):
+    canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+left_panel = scrollable_frame
 
 auth_card = ttk.Labelframe(left_panel, text=" 🔒 身份验证 ", padding=15)
 auth_card.pack(fill=X, pady=(0, 15))

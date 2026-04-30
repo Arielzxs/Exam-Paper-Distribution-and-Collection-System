@@ -37,7 +37,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="/Users/zhangxiangshuo/Desktop/MY-Code/CSP-system/venv"
+VIRTUAL_ENV="/Users/zhangxiangshuo/Desktop/MY-Code/Exam-Paper-Distribution-and-Collection-System/venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

@@ -1,4 +1,4 @@
-#!/Users/zhangxiangshuo/Desktop/MY-Code/CSP-system/venv/bin/python3.9
+#!/Users/zhangxiangshuo/Desktop/MY-Code/Exam-Paper-Distribution-and-Collection-System/venv/bin/python3.9
 # -*- coding: utf-8 -*-
 import re
 import sys

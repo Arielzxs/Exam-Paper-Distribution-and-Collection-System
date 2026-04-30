@@ -1,4 +1,4 @@
-#!/Users/zhangxiangshuo/Desktop/MY-Code/CSP-system/venv/bin/python3.9
+#!/Users/zhangxiangshuo/Desktop/MY-Code/Exam-Paper-Distribution-and-Collection-System/venv/bin/python
 import sys
 from charset_normalizer.cli import cli_detect
 if __name__ == '__main__':
