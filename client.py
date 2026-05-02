@@ -1,16 +1,5 @@
-import hashlib
-import os
-import re
-import sys
-import time
-import uuid
-import random
-import zipfile
-import datetime
-import socket
-import pyzipper
-import requests
-import threading
+import hashlib, os, re, sys, time, uuid, random, zipfile, datetime, socket
+import pyzipper, requests, threading
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -18,36 +7,33 @@ from tkinter.scrolledtext import ScrolledText
 from tkinter import messagebox, filedialog
 
 SERVER_URL = 'http://127.0.0.1:5001'
+WORK_DIR = os.path.expanduser('~/Desktop/NOI_Work')
+os.makedirs(WORK_DIR, exist_ok=True)
 
-def get_mac():
-    mac = ':'.join(re.findall('..', '%012x' % uuid.getnode()))
-    return mac
+def get_mac(): return ':'.join(re.findall('..', '%012x' % uuid.getnode()))
+def get_hostname(): return socket.gethostname()
 
-def get_hostname():
-    return socket.gethostname()
+def get_file_md5(file_path):
+    hash_md5 = hashlib.md5()
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
 
-MAC = get_mac()
-HOSTNAME = get_hostname()
-
-USER_NAME = ''
-USER_NO = ''
-STUDENT_ID = None
-REAL_EXAM_PATH = ''
-
-EXAM_START_TIME = None
-EXAM_END_TIME = None
-ZIP_FILE_PATH = None
-UNZIP_DONE = False
+MAC, HOSTNAME = get_mac(), get_hostname()
+STUDENT_ID, STUDENT_NAME, STUDENT_NO = None, '', ''
+EXAM_START_TIME, EXAM_END_TIME = None, None
+ZIP_FILE_PATH, UNZIP_DONE = None, False
 IS_EXAM_OVER = False
 
+# ===================== GUI =====================
 root = ttk.Window(title="NOI 智能考试终端", themename="litera")
-root.geometry("800x600")
+root.geometry("780x600")
 root.place_window_center()
 
 header = ttk.Frame(root)
 header.pack(fill=X, padx=10, pady=10)
-title_label = ttk.Label(header, text="🎓 NOI 智能考试终端", font=('Helvetica', 20, 'bold'), bootstyle=PRIMARY)
-title_label.pack(side=LEFT)
+ttk.Label(header, text="🎓 NOI 智能考试终端", font=('Helvetica', 20, 'bold'), bootstyle=PRIMARY).pack(side=LEFT)
 
 time_label = ttk.Label(
     header,
@@ -84,36 +70,33 @@ def _on_mousewheel(event):
 canvas.bind_all("<MouseWheel>", _on_mousewheel)
 left_panel = scrollable_frame
 
+# 身份验证
 auth_card = ttk.LabelFrame(left_panel, text=" 🔒 身份验证 ")
 auth_card.pack(fill=X, pady=(0, 15))
-
-name_label = ttk.Label(auth_card, text="考 生 姓 名")
-name_label.pack(anchor=W, pady=(0, 5))
+ttk.Label(auth_card, text="考 生 姓 名").pack(anchor=W, pady=(0, 5))
 entry_name = ttk.Entry(auth_card, font=('Helvetica', 11))
 entry_name.pack(fill=X, pady=(0, 15))
-
-no_label = ttk.Label(auth_card, text="考 生 考 号")
-no_label.pack(anchor=W, pady=(0, 5))
+ttk.Label(auth_card, text="考 生 考 号").pack(anchor=W, pady=(0, 5))
 entry_no = ttk.Entry(auth_card, font=('Helvetica', 11))
 entry_no.pack(fill=X, pady=(0, 15))
-
 btn_login = ttk.Button(auth_card, text="验证并登录考场", bootstyle=PRIMARY, width=20)
 btn_login.pack(fill=X)
 
+# 本机环境
 env_card = ttk.LabelFrame(left_panel, text=" 💻 本机环境 ")
 env_card.pack(fill=X, pady=(0, 15))
-info_label = ttk.Label(env_card, text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n等待登录", bootstyle=SECONDARY)
-info_label.pack(anchor=W, pady=2)
+ttk.Label(env_card, text=f"机器名称:\n{HOSTNAME}", bootstyle=SECONDARY).pack(anchor=W, pady=2)
+ttk.Label(env_card, text=f"物理地址:\n{MAC}", bootstyle=SECONDARY).pack(anchor=W, pady=2)
 
+# 考场操作
 action_card = ttk.LabelFrame(left_panel, text=" ⚙️ 考场操作 ")
 action_card.pack(fill=X)
-
-btn_download = ttk.Button(action_card, text="⬇️ 下载试题", bootstyle=(INFO, OUTLINE), state=DISABLED)
+btn_download = ttk.Button(action_card, text="⬇️ 强行拉取试题", bootstyle=(INFO, OUTLINE))
 btn_download.pack(fill=X, pady=5)
-
-btn_check_upload = ttk.Button(action_card, text="🚀 检查并提交答卷", bootstyle=SUCCESS, state=DISABLED)
+btn_check_upload = ttk.Button(action_card, text="🚀 检查并提交答卷", bootstyle=SUCCESS)
 btn_check_upload.pack(fill=X, pady=5)
 
+# 日志
 log_card = ttk.LabelFrame(main_content, text=" 📊 系统日志与进度 ")
 log_card.pack(side=RIGHT, fill=BOTH, expand=True)
 log = ScrolledText(log_card, wrap=WORD, font=('Consolas', 10))
@@ -126,8 +109,27 @@ def log_print(s):
         log.see(END)
     root.after(0, _update)
 
+# ===================== 按钮闪烁效果 =====================
+def flash_button(button, flashes=6, interval=120):
+    original_style = button.cget("style") or ""
+    flash_style = "Flash.TButton"
+
+    style = ttk.Style()
+    style.configure(flash_style, background="#ffb347")
+
+    def _toggle(count=0):
+        if count >= flashes:
+            button.config(style=original_style)
+            return
+        button.config(style=flash_style if count % 2 == 0 else original_style)
+        root.after(interval, lambda: _toggle(count + 1))
+
+    _toggle()
+
+# ===================== 心跳包 =====================
 def send_heartbeat():
     while True:
+        time.sleep(5)
         try:
             requests.post(f'{SERVER_URL}/api/heartbeat',
                 json={
@@ -137,8 +139,8 @@ def send_heartbeat():
                 }, timeout=3)
         except:
             pass
-        time.sleep(5)
 
+# ===================== 实时同步剩余时间 =====================
 def sync_exam_time():
     global EXAM_START_TIME, EXAM_END_TIME, IS_EXAM_OVER
     while True:
@@ -159,11 +161,10 @@ def sync_exam_time():
 
             if now >= e_dt:
                 IS_EXAM_OVER = True
-                txt = f"⏰ 考试已结束"
+                txt = f"⏰ 考试已结束\n{s_str} ~ {e_str}"
                 root.after(0, lambda: time_label.config(text=txt, bootstyle=DANGER))
-                root.after(0, lambda: btn_check_upload.config(state=DISABLED))
             elif now < s_dt:
-                txt = f"⏳ 等待开考"
+                txt = f"📅 考试时段：{s_str} ~ {e_str}\n⏳ 等待开考"
                 root.after(0, lambda: time_label.config(text=txt, bootstyle=INFO))
             else:
                 delta = e_dt - now
@@ -171,14 +172,15 @@ def sync_exam_time():
                 m = (delta.seconds % 3600) // 60
                 s = delta.seconds % 60
                 remain = f"{h:02d}:{m:02d}:{s:02d}"
-                txt = f"⏱️ 剩余：{remain}"
+                txt = f"📅 {s_str} ~ {e_str}\n⏱️ 剩余：{remain}"
                 root.after(0, lambda: time_label.config(text=txt, bootstyle=WARNING))
         except:
             pass
         time.sleep(1)
 
+# ===================== 登录 =====================
 def login():
-    global USER_NAME, USER_NO, STUDENT_ID, REAL_EXAM_PATH
+    global STUDENT_ID, STUDENT_NAME, STUDENT_NO
     name = entry_name.get().strip()
     no = entry_no.get().strip()
     if not name or not no:
@@ -193,61 +195,64 @@ def login():
             }, timeout=5)
         res = r.json()
         if res['code'] == 0:
-            USER_NAME = name
-            USER_NO = no
             STUDENT_ID = res['student_id']
-            REAL_EXAM_PATH = res.get('real_exam_path', '').strip()
-
-            if REAL_EXAM_PATH:
-                os.makedirs(REAL_EXAM_PATH, exist_ok=True)
-                info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n{REAL_EXAM_PATH}")
-                log_print(f'📂 考试目录：{REAL_EXAM_PATH}')
-            else:
-                info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n待选择")
-                log_print("📂 考试目录：待选择")
-
-            log_print(f'✅ 登录成功')
-            btn_download.config(state=NORMAL)
-            btn_check_upload.config(state=NORMAL)
-            btn_login.config(state=DISABLED)
-            entry_name.config(state=DISABLED)
-            entry_no.config(state=DISABLED)
+            STUDENT_NAME = name
+            STUDENT_NO = no
+            log_print(f'✅ 验证成功！欢迎考生 {name}')
+            messagebox.showinfo("验证成功", f"欢迎考生 {name}！")
 
             threading.Thread(target=send_heartbeat, daemon=True).start()
             threading.Thread(target=sync_exam_time, daemon=True).start()
         else:
-            messagebox.showerror('错误', '未找到考生信息')
-    except Exception as e:
-        messagebox.showerror('错误', f'连接失败：{e}')
+            messagebox.showerror('错误', '未找到该考生信息')
+    except:
+        messagebox.showerror('错误', '无法连接到监考服务器！')
 
-btn_login.config(command=login)
+def on_login_click():
+    flash_button(btn_login)
+    login()
 
+btn_login.config(command=on_login_click)
+
+def ensure_logged_in():
+    if not STUDENT_ID:
+        messagebox.showwarning("提示", "请先验证并登录考场")
+        return False
+    return True
+
+# ===================== 下载试题 =====================
 def download_problem():
-    global ZIP_FILE_PATH, REAL_EXAM_PATH
+    global ZIP_FILE_PATH, WORK_DIR
+    if not ensure_logged_in():
+        return
     try:
         select_dir = filedialog.askdirectory(title='选择试题保存目录')
         if not select_dir:
             log_print("🚫 未选择试题保存目录")
             return
 
-        REAL_EXAM_PATH = select_dir
-        os.makedirs(REAL_EXAM_PATH, exist_ok=True)
-        info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n{REAL_EXAM_PATH}")
-        log_print(f'📂 试题保存目录：{REAL_EXAM_PATH}')
+        WORK_DIR = select_dir
+        os.makedirs(WORK_DIR, exist_ok=True)
 
-        log_print('⬇️ 正在下载试题...')
+        log_print('⬇️ 开始拉取加密试题...')
         r = requests.get(f'{SERVER_URL}/api/download_problem', stream=True, timeout=20)
-        ZIP_FILE_PATH = os.path.join(REAL_EXAM_PATH, 'exam_enc.zip')
+        ZIP_FILE_PATH = os.path.join(WORK_DIR, 'exam_enc.zip')
         with open(ZIP_FILE_PATH, 'wb') as f:
             for chunk in r.iter_content(8192):
                 f.write(chunk)
-        log_print('📦 试题已下载，等待开考自动解压')
+        log_print('📦 试题已就绪，等待开考自动解压')
+        messagebox.showinfo("下载完成", "试题已下载完成！等待开考自动解压。")
         threading.Thread(target=poll_unzip, daemon=True).start()
     except Exception as e:
-        log_print(f'❌ 下载失败：{e}')
+        log_print(f'❌ 拉取失败: {e}')
 
-btn_download.config(command=download_problem)
+def on_download_click():
+    flash_button(btn_download)
+    download_problem()
 
+btn_download.config(command=on_download_click)
+
+# ===================== 自动解压 =====================
 def poll_unzip():
     global UNZIP_DONE
     while not UNZIP_DONE:
@@ -263,133 +268,98 @@ def poll_unzip():
             if r.json()['code'] != 0:
                 continue
             pwd = r.json()['password']
-            log_print("🔑 开始自动解压...")
+            log_print("🔑 已获取开考密钥，正在解压...")
             with pyzipper.AESZipFile(ZIP_FILE_PATH, 'r') as zf:
                 zf.setpassword(pwd.encode('utf-8'))
-                zf.extractall(REAL_EXAM_PATH)
-            os.remove(ZIP_FILE_PATH)
+                zf.extractall(WORK_DIR)
+            log_print("🎉 试题已解压完成")
+            try:
+                os.remove(ZIP_FILE_PATH)
+            except:
+                pass
             UNZIP_DONE = True
-            log_print("🎉 试题解压完成！")
-            root.after(0, lambda: messagebox.showinfo("开考", "考试正式开始！"))
+            root.after(0, lambda: messagebox.showinfo("开考", "考试开始！"))
         except:
             pass
 
-def calculate_md5(file_path):
-    md5 = hashlib.md5()
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(4096), b''):
-            md5.update(chunk)
-    return md5.hexdigest()
-
-def get_total_questions(exam_path):
-    count = 0
-    for name in os.listdir(exam_path):
-        folder = os.path.join(exam_path, name)
-        if os.path.isdir(folder) and "答题文件夹" in name:
-            count += 1
-    return count
-
-def count_finished_questions(exam_path):
-    count = 0
-    for name in os.listdir(exam_path):
-        folder = os.path.join(exam_path, name)
-        if os.path.isdir(folder) and "答题文件夹" in name:
-            if len(os.listdir(folder)) > 0:
-                count += 1
-    return count
-
+# ===================== 提交答卷 =====================
 def check_and_upload():
     global IS_EXAM_OVER
+    if not ensure_logged_in():
+        return
     if IS_EXAM_OVER:
-        return messagebox.showerror("禁止","考试已结束")
-    if not os.path.exists(REAL_EXAM_PATH):
-        return messagebox.showerror("错误","考试目录不存在")
+        messagebox.showerror("禁止","考试已结束，无法交卷！")
+        return
+    if not os.path.exists(WORK_DIR):
+        return messagebox.showerror("错误", "未找到答题目录")
 
     submit_dir = filedialog.askdirectory(title="选择要提交的答题文件夹")
     if not submit_dir:
         log_print("🚫 未选择提交文件夹")
         return
 
-    zip_path = os.path.join(REAL_EXAM_PATH, f"{USER_NO}.zip")
-
+    log_print("🔍 正在扫描答卷...")
     try:
-        log_print("📦 正在打包答卷...")
+        zip_path = os.path.join(WORK_DIR, f"{STUDENT_NO}.zip")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root_dir, _, files in os.walk(submit_dir):
                 for f in files:
+                    if f == os.path.basename(zip_path):
+                        continue
                     full = os.path.join(root_dir, f)
                     zf.write(full, os.path.relpath(full, submit_dir))
 
-        finished = count_finished_questions(submit_dir)
-        total = get_total_questions(submit_dir)
-        size = os.path.getsize(zip_path)
-        md5 = calculate_md5(zip_path)
-        size_mb = size / 1024 / 1024
-
-        log_print(f"✅ 已完成题目：{finished}/{total} 题 | 大小：{size_mb:.2f}MB | MD5：{md5}")
-
-        confirm = messagebox.askyesno("交卷确认",
-            f"考生：{USER_NAME}({USER_NO})\n"
-            f"已完成题目：{finished}/{total} 题\n"
-            f"文件大小：{size_mb:.2f}MB\n"
-            f"MD5：{md5}\n\n"
-            "确认提交后无法修改，确定交卷？")
-
-        if not confirm:
-            log_print("🚫 取消提交")
-            os.remove(zip_path)
-            return
-
-        log_print("🚀 正在上传...")
         requests.post(f'{SERVER_URL}/api/upload_submit',
             data={
                 'student_id': STUDENT_ID,
-                'student_name': USER_NAME,
-                'student_no': USER_NO,
+                'student_name': STUDENT_NAME,
+                'student_no': STUDENT_NO,
                 'mac_address': MAC,
                 'hostname': HOSTNAME
             },
-            files={'file': open(zip_path, 'rb')}, timeout=30)
+            files={'file': open(zip_path, 'rb')}, timeout=20)
 
         log_print("🌟 提交成功！")
         messagebox.showinfo("成功", "交卷完成！")
     except Exception as e:
-        log_print(f"❌ 提交失败：{e}")
+        log_print(f"❌ 提交失败: {e}")
 
-btn_check_upload.config(command=check_and_upload)
+def on_submit_click():
+    flash_button(btn_check_upload)
+    check_and_upload()
 
+btn_check_upload.config(command=on_submit_click)
+
+# ===================== 远程清理 =====================
 def poll_clean():
     while True:
+        time.sleep(10)
         try:
-            res = requests.get(f'{SERVER_URL}/api/get_clean', timeout=3)
-            if res.status_code == 200 and res.json().get("code") == 0:
-                if REAL_EXAM_PATH and os.path.isdir(REAL_EXAM_PATH):
-                    for root, dirs, files in os.walk(REAL_EXAM_PATH, topdown=False):
-                        for f in files:
-                            try:
-                                os.remove(os.path.join(root, f))
-                            except:
-                                pass
-                        for d in dirs:
-                            try:
-                                os.rmdir(os.path.join(root, d))
-                            except:
-                                pass
-                    log_print("🧹 远程清理完成")
+            if requests.get(f'{SERVER_URL}/api/get_clean', timeout=3).json().get('code') == 0:
+                for fn in os.listdir(WORK_DIR):
+                    try:
+                        os.remove(os.path.join(WORK_DIR, fn))
+                    except:
+                        pass
+                log_print("🧹 工作区已清空")
         except:
             pass
-        time.sleep(10)
 
 threading.Thread(target=poll_clean, daemon=True).start()
 
+# ===================== 开机绑定 =====================
 def check_bind_on_start():
     try:
         res = requests.post(f'{SERVER_URL}/api/check_bind',
             json={'mac_address': MAC, 'hostname': HOSTNAME}, timeout=3).json()
         if res['code'] == 0:
-            root.after(0, lambda: entry_name.insert(0, res['name']))
-            root.after(0, lambda: entry_no.insert(0, res['student_no']))
-            log_print("📡 已识别设备")
+            def fill():
+                entry_name.delete(0, END)
+                entry_name.insert(0, res['name'])
+                entry_no.delete(0, END)
+                entry_no.insert(0, res['student_no'])
+                log_print("📡 已自动识别设备")
+            root.after(0, fill)
     except:
         pass
 
