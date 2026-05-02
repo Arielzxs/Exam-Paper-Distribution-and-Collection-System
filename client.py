@@ -15,7 +15,7 @@ import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from tkinter.scrolledtext import ScrolledText
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
 
 SERVER_URL = 'http://127.0.0.1:5001'
 
@@ -108,7 +108,7 @@ info_label.pack(anchor=W, pady=2)
 action_card = ttk.LabelFrame(left_panel, text=" ⚙️ 考场操作 ")
 action_card.pack(fill=X)
 
-btn_download = ttk.Button(action_card, text="⬇️ 强行拉取试题", bootstyle=(INFO, OUTLINE), state=DISABLED)
+btn_download = ttk.Button(action_card, text="⬇️ 下载试题", bootstyle=(INFO, OUTLINE), state=DISABLED)
 btn_download.pack(fill=X, pady=5)
 
 btn_check_upload = ttk.Button(action_card, text="🚀 检查并提交答卷", bootstyle=SUCCESS, state=DISABLED)
@@ -196,12 +196,17 @@ def login():
             USER_NAME = name
             USER_NO = no
             STUDENT_ID = res['student_id']
-            REAL_EXAM_PATH = res['real_exam_path']
-            os.makedirs(REAL_EXAM_PATH, exist_ok=True)
+            REAL_EXAM_PATH = res.get('real_exam_path', '').strip()
 
-            info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n{REAL_EXAM_PATH}")
+            if REAL_EXAM_PATH:
+                os.makedirs(REAL_EXAM_PATH, exist_ok=True)
+                info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n{REAL_EXAM_PATH}")
+                log_print(f'📂 考试目录：{REAL_EXAM_PATH}')
+            else:
+                info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n待选择")
+                log_print("📂 考试目录：待选择")
+
             log_print(f'✅ 登录成功')
-            log_print(f'📂 考试目录：{REAL_EXAM_PATH}')
             btn_download.config(state=NORMAL)
             btn_check_upload.config(state=NORMAL)
             btn_login.config(state=DISABLED)
@@ -218,8 +223,18 @@ def login():
 btn_login.config(command=login)
 
 def download_problem():
-    global ZIP_FILE_PATH
+    global ZIP_FILE_PATH, REAL_EXAM_PATH
     try:
+        select_dir = filedialog.askdirectory(title='选择试题保存目录')
+        if not select_dir:
+            log_print("🚫 未选择试题保存目录")
+            return
+
+        REAL_EXAM_PATH = select_dir
+        os.makedirs(REAL_EXAM_PATH, exist_ok=True)
+        info_label.config(text=f"机器名称:\n{HOSTNAME}\n物理地址:\n{MAC}\n工作目录:\n{REAL_EXAM_PATH}")
+        log_print(f'📂 试题保存目录：{REAL_EXAM_PATH}')
+
         log_print('⬇️ 正在下载试题...')
         r = requests.get(f'{SERVER_URL}/api/download_problem', stream=True, timeout=20)
         ZIP_FILE_PATH = os.path.join(REAL_EXAM_PATH, 'exam_enc.zip')
@@ -266,7 +281,6 @@ def calculate_md5(file_path):
             md5.update(chunk)
     return md5.hexdigest()
 
-# ===================== 获取总题数 =====================
 def get_total_questions(exam_path):
     count = 0
     for name in os.listdir(exam_path):
@@ -275,7 +289,6 @@ def get_total_questions(exam_path):
             count += 1
     return count
 
-# ===================== 核心：按答题文件夹是否为空统计答题数 =====================
 def count_finished_questions(exam_path):
     count = 0
     for name in os.listdir(exam_path):
@@ -292,20 +305,23 @@ def check_and_upload():
     if not os.path.exists(REAL_EXAM_PATH):
         return messagebox.showerror("错误","考试目录不存在")
 
+    submit_dir = filedialog.askdirectory(title="选择要提交的答题文件夹")
+    if not submit_dir:
+        log_print("🚫 未选择提交文件夹")
+        return
+
     zip_path = os.path.join(REAL_EXAM_PATH, f"{USER_NO}.zip")
 
     try:
         log_print("📦 正在打包答卷...")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root_dir, _, files in os.walk(REAL_EXAM_PATH):
+            for root_dir, _, files in os.walk(submit_dir):
                 for f in files:
-                    if f == os.path.basename(zip_path):
-                        continue
                     full = os.path.join(root_dir, f)
-                    zf.write(full, os.path.relpath(full, REAL_EXAM_PATH))
+                    zf.write(full, os.path.relpath(full, submit_dir))
 
-        finished = count_finished_questions(REAL_EXAM_PATH)
-        total = get_total_questions(REAL_EXAM_PATH)
+        finished = count_finished_questions(submit_dir)
+        total = get_total_questions(submit_dir)
         size = os.path.getsize(zip_path)
         md5 = calculate_md5(zip_path)
         size_mb = size / 1024 / 1024

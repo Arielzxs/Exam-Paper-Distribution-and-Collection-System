@@ -30,14 +30,6 @@ def get_submit_save_path():
     conn.close()
     return r[0] if (r and r[0]) else None
 
-def get_client_full_path():
-    conn = get_db()
-    c = conn.cursor()
-    c.execute('SELECT client_full_path FROM exams ORDER BY id DESC LIMIT 1')
-    r = c.fetchone()
-    conn.close()
-    return r[0] if (r and r[0]) else ""
-
 def update_student_status(mac, hostname, status):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = get_db()
@@ -108,23 +100,15 @@ def login():
     c.execute('SELECT id FROM students WHERE name=? AND student_no=? AND mac_address=? AND hostname=?',
               (d['name'], d['student_no'], d['mac_address'], d['hostname']))
     r = c.fetchone()
+    conn.close()
     if not r:
-        conn.close()
         return jsonify({'code': -1})
 
-    path_template = get_client_full_path()
-    real_path = path_template.replace("${hostname}", d.get("hostname", ""))
-    try:
-        os.makedirs(real_path, exist_ok=True)
-    except:
-        pass
-
-    conn.close()
     update_student_status(d['mac_address'], d['hostname'], "已登录")
     return jsonify({
         'code': 0,
         'student_id': r[0],
-        'real_exam_path': real_path
+        'real_exam_path': ""
     })
 
 @app.route('/api/upload_submit', methods=['POST'])
@@ -253,42 +237,36 @@ class ServerGUI:
         self.pwd.grid(row=1, column=1, sticky=W, padx=5, pady=5)
         ttk.Button(group_exam, text='随机', bootstyle=(INFO, OUTLINE), command=self.gen_rand_pwd).grid(row=1, column=2, padx=5)
 
-        ttk.Label(group_exam, text='客户端完整路径\n支持 ${hostname}').grid(row=2, column=0, pady=5, sticky=W)
-        self.client_path = ttk.Entry(group_exam)
-        self.client_path.insert(0, "C:\\Users\\${hostname}\\Desktop\\NOI考试")
-        self.client_path.grid(row=2, column=1, sticky=EW, padx=5, pady=5)
-        ttk.Button(group_exam, text='插入\n${hostname}', command=self.insert_hostname_var).grid(row=2, column=2, padx=5)
-
-        ttk.Label(group_exam, text='试题数量').grid(row=3, column=0, pady=5, sticky=W)
+        ttk.Label(group_exam, text='试题数量').grid(row=2, column=0, pady=5, sticky=W)
         self.question_count = ttk.Entry(group_exam, width=8)
-        self.question_count.grid(row=3, column=1, sticky=W, padx=5, pady=5)
+        self.question_count.grid(row=2, column=1, sticky=W, padx=5, pady=5)
 
-        ttk.Label(group_exam, text='原题目录').grid(row=4, column=0, pady=5, sticky=W)
+        ttk.Label(group_exam, text='原题目录').grid(row=3, column=0, pady=5, sticky=W)
         self.zip_path_entry = ttk.Entry(group_exam)
-        self.zip_path_entry.grid(row=4, column=1, sticky=EW, padx=5, pady=5)
-        ttk.Button(group_exam, text='浏览', bootstyle=(SECONDARY, OUTLINE), command=self.browse_zip).grid(row=4, column=2, padx=5)
+        self.zip_path_entry.grid(row=3, column=1, sticky=EW, padx=5, pady=5)
+        ttk.Button(group_exam, text='浏览', bootstyle=(SECONDARY, OUTLINE), command=self.browse_zip).grid(row=3, column=2, padx=5)
 
-        ttk.Label(group_exam, text='收卷目录').grid(row=5, column=0, pady=5, sticky=W)
+        ttk.Label(group_exam, text='收卷目录').grid(row=4, column=0, pady=5, sticky=W)
         self.submit_save_path = ttk.Entry(group_exam)
-        self.submit_save_path.grid(row=5, column=1, sticky=EW, padx=5, pady=5)
-        ttk.Button(group_exam, text='浏览', bootstyle=(SECONDARY, OUTLINE), command=self.select_submit_path).grid(row=5, column=2, padx=5)
+        self.submit_save_path.grid(row=4, column=1, sticky=EW, padx=5, pady=5)
+        ttk.Button(group_exam, text='浏览', bootstyle=(SECONDARY, OUTLINE), command=self.select_submit_path).grid(row=4, column=2, padx=5)
 
-        ttk.Label(group_exam, text='开始时间').grid(row=6, column=0, pady=5, sticky=W)
+        ttk.Label(group_exam, text='开始时间').grid(row=5, column=0, pady=5, sticky=W)
         self.etime_start = ttk.Entry(group_exam)
         self.etime_start.insert(0, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        self.etime_start.grid(row=6, column=1, columnspan=2, sticky=EW, padx=5, pady=5)
+        self.etime_start.grid(row=5, column=1, columnspan=2, sticky=EW, padx=5, pady=5)
 
-        ttk.Label(group_exam, text='结束时间').grid(row=7, column=0, pady=5, sticky=W)
+        ttk.Label(group_exam, text='结束时间').grid(row=6, column=0, pady=5, sticky=W)
         self.etime_end = ttk.Entry(group_exam)
         self.etime_end.insert(0, (datetime.datetime.now() + datetime.timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S"))
-        self.etime_end.grid(row=7, column=1, columnspan=2, sticky=EW, padx=5, pady=5)
+        self.etime_end.grid(row=6, column=1, columnspan=2, sticky=EW, padx=5, pady=5)
 
         ttk.Button(
             group_exam,
             text='🚀 发布考试 (自动加密打包)',
             bootstyle=PRIMARY,
             command=self.start_set_exam
-        ).grid(row=8, column=0, columnspan=3, pady=15, sticky=EW)
+        ).grid(row=7, column=0, columnspan=3, pady=15, sticky=EW)
 
         right_panel = ttk.Frame(main_frame)
         right_panel.pack(side=LEFT, fill=BOTH, expand=True)
@@ -308,9 +286,6 @@ class ServerGUI:
         self.log.pack(fill=BOTH, expand=True)
 
         self.log_print('✅ 服务端启动完成，运行端口：5001')
-
-    def insert_hostname_var(self):
-        self.client_path.insert(tk.END, "${hostname}")
 
     def log_print(self, msg):
         self.log.insert(END, f'[{datetime.datetime.now().strftime("%H:%M:%S")}] {msg}\n')
@@ -358,12 +333,9 @@ class ServerGUI:
         source_path = self.zip_path_entry.get().strip()
         submit_path = self.submit_save_path.get().strip()
         pwd = self.pwd.get().strip()
-        client_path = self.client_path.get().strip()
         etime_start = self.etime_start.get().strip()
         etime_end = self.etime_end.get().strip()
 
-        if not client_path:
-            return messagebox.showerror("错误", "客户端文件夹不能为空")
         if not source_path or not os.path.isdir(source_path):
             return messagebox.showerror("错误", "请选择试题目录")
         if not submit_path:
@@ -375,10 +347,10 @@ class ServerGUI:
             return messagebox.showerror("错误", "试题数量必须是数字")
 
         threading.Thread(target=self.set_exam_worker,
-                         args=(exam_name, source_path, submit_path, pwd, client_path, etime_start, etime_end, n),
+                         args=(exam_name, source_path, submit_path, pwd, etime_start, etime_end, n),
                          daemon=True).start()
 
-    def set_exam_worker(self, exam_name, source_path, submit_path, pwd, client_path, etime_start, etime_end, n):
+    def set_exam_worker(self, exam_name, source_path, submit_path, pwd, etime_start, etime_end, n):
         temp_dir = None
         try:
             os.makedirs('exams', exist_ok=True)
@@ -411,9 +383,9 @@ class ServerGUI:
             c = conn.cursor()
             c.execute('''
                 INSERT INTO exams
-                (exam_name, zip_path, password, exam_start_time, exam_end_time, submit_save_path, client_full_path)
-                VALUES (?,?,?,?,?,?,?)
-            ''', (exam_name, dest_path, pwd, etime_start, etime_end, submit_path, client_path))
+                (exam_name, zip_path, password, exam_start_time, exam_end_time, submit_save_path)
+                VALUES (?,?,?,?,?,?)
+            ''', (exam_name, dest_path, pwd, etime_start, etime_end, submit_path))
             conn.commit()
             conn.close()
             self.log_print('✅ 考试发布成功！')
