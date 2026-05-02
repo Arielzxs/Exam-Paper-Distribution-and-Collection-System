@@ -11,7 +11,7 @@ def init_database():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    # 1. 考生表（机器绑定）
+    # 1. 考生表（机器绑定 + 单一状态字段）
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS students (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,11 +20,29 @@ def init_database():
         mac_address TEXT NOT NULL,    -- MAC地址
         hostname TEXT NOT NULL,       -- 主机名
         ip_address TEXT,              -- IP
+        status TEXT DEFAULT '未连接',  -- 状态：未连接、已连接、已登录、已交卷
+        last_heartbeat TIMESTAMP,      -- 最后心跳时间
         bind_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
 
-    # 2. 考试配置表（新增 exam_end_time 列：考试结束时间）
+    # 兼容旧数据库：自动添加 status 字段
+    try:
+        cursor.execute('ALTER TABLE students ADD COLUMN status TEXT DEFAULT "未连接"')
+        conn.commit()
+        print("ℹ️ 已为 students 表新增 status 状态列")
+    except sqlite3.OperationalError:
+        pass
+
+    # 兼容旧数据库：自动添加 last_heartbeat 字段
+    try:
+        cursor.execute('ALTER TABLE students ADD COLUMN last_heartbeat TIMESTAMP')
+        conn.commit()
+        print("ℹ️ 已为 students 表新增 last_heartbeat 列")
+    except sqlite3.OperationalError:
+        pass
+
+    # 2. 考试配置表（保留 exam_end_time 列：考试结束时间）
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS exams (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,18 +50,26 @@ def init_database():
         zip_path TEXT NOT NULL,       -- 试题压缩包路径
         password TEXT NOT NULL,       -- 解压密码
         exam_start_time TIMESTAMP,    -- 考试开始时间
-        exam_end_time TIMESTAMP,      -- 新增：考试结束时间
+        exam_end_time TIMESTAMP,      -- 考试结束时间
+        submit_save_path TEXT,        -- 收卷保存目录
         create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
 
-    # 兼容旧数据库：如果已有 exams 表但没有 exam_end_time 列，自动新增（避免删库）
+    # 兼容旧数据库：如果已有 exams 表但没有 exam_end_time 列，自动新增
     try:
         cursor.execute('ALTER TABLE exams ADD COLUMN exam_end_time TIMESTAMP')
         conn.commit()
         print("ℹ️ 已为 exams 表新增 exam_end_time 列")
     except sqlite3.OperationalError:
-        # 列已存在时会触发此异常，无需处理
+        pass
+
+    # 兼容旧数据库：添加 submit_save_path 收卷目录字段
+    try:
+        cursor.execute('ALTER TABLE exams ADD COLUMN submit_save_path TEXT')
+        conn.commit()
+        print("ℹ️ 已为 exams 表新增 submit_save_path 列")
+    except sqlite3.OperationalError:
         pass
 
     # 3. 提交记录表（答案上传）
@@ -80,7 +106,7 @@ def get_db_connection():
     return sqlite3.connect(DB_NAME, check_same_thread=False)
 
 
-# ===================== 测试数据（可选，同步新增 exam_end_time 测试值） =====================
+# ===================== 测试数据（同步新版结构） =====================
 def insert_test_data():
     conn = get_db_connection()
     c = conn.cursor()
@@ -91,20 +117,20 @@ def insert_test_data():
     VALUES (?, ?, ?, ?, ?)
     ''', ("测试考生", "N2026999", "00:11:22:33:44:55", "TEST-PC", "127.0.0.1"))
 
-    # 插入测试考试（新增结束时间：开始时间 + 2小时）
+    # 插入测试考试
     start_time = datetime.datetime.now()
     end_time = start_time + datetime.timedelta(hours=2)
     start_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
     end_str = end_time.strftime("%Y-%m-%d %H:%M:%S")
 
     c.execute('''
-    INSERT INTO exams (exam_name, zip_path, password, exam_start_time, exam_end_time)
-    VALUES (?, ?, ?, ?, ?)
-    ''', ("NOI测试考试", "exams/problem.zip", "123456", start_str, end_str))
+    INSERT INTO exams (exam_name, zip_path, password, exam_start_time, exam_end_time, submit_save_path)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ''', ("NOI测试考试", "exams/problem.zip", "123456", start_str, end_str, "submissions"))
 
     conn.commit()
     conn.close()
-    print("✅ 测试数据插入完成（含考试结束时间）")
+    print("✅ 测试数据插入完成（含状态、心跳、收卷目录）")
 
 
 # ===================== 查看所有表结构 =====================
