@@ -489,7 +489,7 @@ class ServerGUI:
         self.root = root
         self.root.title('NOI 试题收发系统 - 教师控制台')
         self.root.geometry('1600x1200')
-        self.root.place_window_center()
+        # self.root.place_window_center()
 
         header = ttk.Frame(root, padding=10)
         header.pack(fill=X)
@@ -1274,6 +1274,10 @@ if __name__ == '__main__':
     init_database()
     threading.Thread(target=heartbeat_checker, daemon=True).start()
     threading.Thread(target=run_server, daemon=True).start()
-    app_window = ttk.Window(themename="flatly")
+    # app_window = ttk.Window(themename="flatly")
+    # ServerGUI(app_window)
+    # app_window.mainloop()
+    app_window = tk.Tk()
+    style = ttk.Style(theme="flatly")
     ServerGUI(app_window)
     app_window.mainloop()
