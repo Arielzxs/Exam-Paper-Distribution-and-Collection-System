@@ -489,7 +489,7 @@ class ServerGUI:
         self.root = root
         self.root.title('NOI 试题收发系统 - 教师控制台')
         self.root.geometry('1600x1200')
-        # self.root.place_window_center()
+        self.root.place_window_center()
 
         header = ttk.Frame(root, padding=10)
         header.pack(fill=X)
@@ -1271,13 +1271,28 @@ class ServerGUI:
 
 
 if __name__ == '__main__':
-    init_database()
-    threading.Thread(target=heartbeat_checker, daemon=True).start()
-    threading.Thread(target=run_server, daemon=True).start()
+    # init_database()
+    # threading.Thread(target=heartbeat_checker, daemon=True).start()
+    # threading.Thread(target=run_server, daemon=True).start()
     # app_window = ttk.Window(themename="flatly")
     # ServerGUI(app_window)
     # app_window.mainloop()
-    app_window = tk.Tk()
-    style = ttk.Style(theme="flatly")
+    init_database()
+    
+    # 1. 先创建UI窗口，并将主题改为和 client.py 一样的 litera (flatly在部分mac上也有bug)
+    app_window = ttk.Window(themename="litera") 
+    
+    # 2. 封装后台线程
+    def start_background_tasks():
+        threading.Thread(target=heartbeat_checker, daemon=True).start()
+        threading.Thread(target=run_server, daemon=True).start()
+        
+    # 3. 让 GUI 渲染 100 毫秒后，再启动后台网络和检测服务
+    app_window.after(100, start_background_tasks)
+    
     ServerGUI(app_window)
+    
+    # 4. 强制刷新一次 macOS 渲染缓冲
+    app_window.update_idletasks() 
+    
     app_window.mainloop()
